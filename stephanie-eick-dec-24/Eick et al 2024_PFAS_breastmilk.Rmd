@@ -1,0 +1,630 @@
+---
+title: "SAWASDEE_PFAS_Breastmilk"
+author: "Neha Sehgal"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+	echo = TRUE,
+	message = FALSE,
+	warning = FALSE
+)
+# Load Libraries
+library('haven')
+library('table1')
+library('tidyverse')
+library('Hmisc')
+library('ggplot2')
+library('ggcorrplot')
+library('corrplot')
+library(dplyr)
+library(ggpubr)
+library("tibble")
+library("sjPlot")
+library(readxl)
+library(naniar)
+library(DataExplorer)
+library(viridis)
+library(stringr)
+```
+
+## Introduction
+
+This is the final R code for the main results, figures, and tables
+included in the publication: ***Eick et al (2024). Per- and
+polyfluoroalkyl substances in serum and breastmilk samples among
+pregnant farmworkers in Thailand.*** doi:https://doi.org/10.1016/j.ijheh.2024.114509
+
+## Data Import: Load clean data
+
+This data includes serum and breastmilk PFAS, covariates (for analytical
+subset and the parent SAWASDEE cohort) and NHANES data. Please note
+covariate data has been cleaned and recoded. Specifically, for this
+analysis, PFAS data has transformed so that:
+
+1.  undergone QA/QC,
+2.  cleaned to remove any duplicates
+3.  single imputed with LOQ/sqrt(2), and
+4.  natural-log using R's log() function
+5.  sumPFOS = sum of linear and branched PFOS
+
+```{r import, eval=FALSE, include=FALSE}
+# #### load PFAS data 
+# load("SAWASDEE_PFAS_clean_NS_10282023.Rda")
+# 
+# #### load covariate data
+# load("breastfeed_PFAS_covars.Rda")
+# load("PFAS_TE_EDI_covars.Rda")
+# load("sawasdee_raw.Rda")
+# 
+# #### load NHANES data
+# load("nhanes_final_dataset_2023.Rda")
+```
+
+## Study Demographics 
+
+**Table 1.** Study demographics of the Study of Asian Women and
+Offspring’s Development and Environmental Exposures (SAWASDEE) cohort,
+2017-2019
+
+```{r demographics, echo=FALSE}
+#### Table 1. for analytical susbet 
+table1(~ child_sex+mom_education+ppbmi+location+ mat_age+Parity+household_adj_income, data = breastfeed_PFAS_covars)
+
+#### Table 1. for parent SAWASDEE cohort 
+table1(~Infant_Sex+Maternal_education+ BMI_delivery + Location+ `Maternal Age` + as.character(Parity) + household_adj_income, sawasdee_raw)
+```
+
+## PFAS
+
+**Table 2.** Distribution of serum and breastmilk per- and
+poly-fluoroalkyl substances (PFAS) concentrations (ng/mL) in the Study
+of Asian Women and Offspring’s Development and Environmental Exposures
+(SAWASDEE cohort, 2017-2019) and among reproductive aged women in the
+National Health and Nutrition Examination Study NHANES; years
+2017-2018).
+
+```{r pfas, message=FALSE, warning=FALSE}
+#### distributions using qq plots and histograms
+plot_histogram(PFAS)
+plot_qq(PFAS, nrow  = 4)
+
+PFAS_fill_visit <- PFAS %>%  mutate(pfas_visit_filled = case_when(pfas_visit  == "10" ~ "9", 
+                                                                  pfas_visit == "12" ~ "11", 
+                                                                  TRUE ~ pfas_visit))
+### create total PFOS ### 
+PFAS_fill_visit <- PFAS_fill_visit %>% rowwise() %>%  mutate(sumPFOS = `L-PFOS (ng/mL)` + `B-PFOS-Q`, 
+                                                             lnsPFOS =  log(sumPFOS))
+
+# PFAS: use all PFAS  from Stephanie Eick: Eick SAWASDEE PFAS 10-19-2023.xlsx  provided as of Oct 25 2023
+# note, dR. PRINN PANUWET @ Rsph, emory says that we only use xx_Q as its the  quantitation ions. No use xxx_c.
+PFAS.vars <- c("PFHpA (ng/mL)" , "L-PFOA (ng/mL)" , "PFHxS (ng/mL)" , "PFNA (ng/mL)" , "PFDA (ng/mL)" ,
+               #"sumPFOS" ,
+               "L-PFOS (ng/mL)", "B-PFOS-Q" , "PFUnDA (ng/mL)" , "PFDoDA (ng/mL)")
+#### Table 2. 
+# function for summary distribution table
+table1.cont <- function(x) {
+  with(stats.apply.rounding(stats.default(x), digits=2), c("",
+                                                           "Mean (SD)"=sprintf("%s (%s)", MEAN, SD)))}
+tabe1.cat <- function(x) {
+  c("", sapply(stats.default(x), function(y) with(y,
+                                                  sprintf("%d (%0.0f %%)", FREQ, PCT))))}
+table2.quartiles <- function(x, name, data2, ...) {
+  Q05 <- quantile(x, 0.05, na.rm = T)
+  Q1 <- quantile(x, 0.25, na.rm = T)
+  median <- median(x, na.rm = T)
+  Q3 <- quantile(x, 0.75, na.rm = T)
+  Q95 <- quantile(x, 0.95, na.rm = T)
+  
+  out <- c("",
+           "5%" = sprintf("%.2f", Q05),
+           "25%" = sprintf("%.2f", Q1), 
+           "50%" = sprintf("%.2f", median), 
+           "75%" = sprintf("%.2f", Q3), 
+           "95%" = sprintf("%.2f", Q95))
+  out}
+
+#### Table 2 overall
+table1(~`PFHpA (ng/mL)` + `L-PFOA (ng/mL)` + `PFHxS (ng/mL)` + `PFNA (ng/mL)` + `PFDA (ng/mL)` + sumPFOS + `L-PFOS (ng/mL)`+ `B-PFOS-Q` + `PFUnDA (ng/mL)` + `PFDoDA (ng/mL)`|pfas_visit_filled*Matrix, 
+       data = PFAS_fill_visit, 
+       render.continuous=c("Geo. mean (Geo. SD)"="GMEAN (GSD)"))
+
+table1(~`PFHpA (ng/mL)` + `L-PFOA (ng/mL)` + `PFHxS (ng/mL)` + `PFNA (ng/mL)` + `PFDA (ng/mL)` + sumPFOS + `L-PFOS (ng/mL)`+ `B-PFOS-Q` + `PFUnDA (ng/mL)` + `PFDoDA (ng/mL)`|pfas_visit_filled*Matrix, 
+       data = PFAS_fill_visit, 
+       render.continuous=table2.quartiles) # get min, median, and max. 
+
+# by matrix 
+PFAS.serum.keep<- PFAS %>% filter(Matrix == "Serum") %>%  mutate(pfas_visit_filled = case_when(pfas_visit  == "10" ~ "9",
+                                                                                               pfas_visit  == "10M" ~ "9",
+                                                                                               pfas_visit  == "9M" ~ "9",
+                                                                                               pfas_visit == "12" ~ "11", 
+                                                                                               pfas_visit == "12M" ~ "11", 
+                                                                                               pfas_visit == "11M" ~ "11", 
+
+                                                                                               TRUE ~ pfas_visit)) %>%  select(ptid, pfas_visit_filled, all_of(PFAS.vars)) 
+
+PFAS.bm.keep<- PFAS %>% filter(Matrix == "Breast milk") %>% mutate(pfas_visit_filled = case_when(pfas_visit  == "10" ~ "9",
+                                                                                               pfas_visit  == "10M" ~ "9",
+                                                                                               pfas_visit  == "9M" ~ "9",
+                                                                                               pfas_visit == "12" ~ "11", 
+                                                                                               pfas_visit == "12M" ~ "11", 
+                                                                                               pfas_visit == "11M" ~ "11",                                                                                                  TRUE ~ pfas_visit)) %>% select(ptid, pfas_visit_filled, all_of(PFAS.vars)) 
+# serum pfas
+table1(~`PFHpA (ng/mL)` + `L-PFOA (ng/mL)` + `PFHxS (ng/mL)` + `PFNA (ng/mL)` + `PFDA (ng/mL)` + `sumPFOS` + `L-PFOS (ng/mL)`+ `B-PFOS-Q` + `PFUnDA (ng/mL)` + `PFDoDA (ng/mL)`|pfas_visit_filled, 
+       data = PFAS.serum.keep, 
+       render.continuous=c("Geo. mean (Geo. SD)"="GMEAN (GSD)"))
+table1(~`PFHpA (ng/mL)` + `L-PFOA (ng/mL)` + `PFHxS (ng/mL)` + `PFNA (ng/mL)` + `PFDA (ng/mL)` + `sumPFOS` + `L-PFOS (ng/mL)`+ `B-PFOS-Q` + `PFUnDA (ng/mL)` + `PFDoDA (ng/mL)`|pfas_visit_filled, 
+       data = PFAS.serum.keep, 
+       render.continuous=table2.quartiles) # get min, median, and max. 
+
+# breastmilk pfas 
+table1(~`PFHpA (ng/mL)` + `L-PFOA (ng/mL)` + `PFHxS (ng/mL)` + `PFNA (ng/mL)` + `PFDA (ng/mL)` + sumPFOS + `L-PFOS (ng/mL)`+ `B-PFOS-Q` + `PFUnDA (ng/mL)` + `PFDoDA (ng/mL)`|pfas_visit_filled, 
+       data = PFAS.bm.keep, 
+       render.continuous=c("Geo. mean (Geo. SD)"="GMEAN (GSD)"))
+table1(~`PFHpA (ng/mL)` + `L-PFOA (ng/mL)` + `PFHxS (ng/mL)` + `PFNA (ng/mL)` + `PFDA (ng/mL)` + sumPFOS  + `L-PFOS (ng/mL)`+ `B-PFOS-Q` + `PFUnDA (ng/mL)` + `PFDoDA (ng/mL)`|pfas_visit_filled, 
+       data = PFAS.bm.keep, 
+       render.continuous=table2.quartiles) # get min, median, and max. 
+
+# percent above LOD  = (Total N - #NAs) / Total N]
+calc_above_lod <- function(x) {x  = case_when(x == "<LOQ" ~ "below LOQ",
+                                              x == NA ~ NA, 
+                                              TRUE ~ "above LOQ")}
+
+pfas <- PFAS %>%  mutate(pfas_visit_filled = case_when(pfas_visit  == "10" ~ "9", 
+                                               pfas_visit == "12" ~ "11", 
+                                               TRUE ~ pfas_visit))
+                         # sumPFOS = `L-PFOS (ng/mL)` + `B-PFOS-Q`, 
+                         # lnsPFOS =  log(sumPFOS))
+
+PFAS.serum.loq <- pfas %>%  filter(Matrix == "Serum" & ptid %in% PFAS.serum.keep$ptid) %>%  mutate_at(vars(c(all_of(PFAS.vars))), calc_above_lod)
+PFAS.bm.loq <- pfas %>%  filter(Matrix == "Breast milk" & ptid %in% PFAS.bm.keep$ptid) %>%  mutate_at(vars(c(all_of(PFAS.vars))), calc_above_lod)
+
+#### calculate % above lod 
+table1(~.|PFAS.bm.loq$pfas_visit_filled, data = PFAS.bm.loq[PFAS.vars])
+table1(~.|PFAS.serum.loq$pfas_visit_filled, data = PFAS.serum.loq[PFAS.vars])
+```
+
+**Calculate lactational transfer efficiency (TE) and estimated daily
+intake (EDI)**
+
+We assessed the lactational transfer of individual PFAS from serum and
+breastmilk using transfer efficiencies (TEs, %). For both 9.5 and 11.5
+months, we calculated TEs using the equation TE = (C~BM~/C~S~)\*100. In
+this equation, C~BM~ is the concentration of a given PFAS in breastmilk
+and C~S~ is the concentration of a given PFAS in serum.
+
+```{r te}
+#### TE% individually
+# save all the raw PFAS data
+PFAS_fill_visit_wide_raw <- PFAS_fill_visit  %>%  select(ptid, pfas_visit_filled, Matrix, all_of(PFAS.vars), "sumPFOS") %>%  
+  mutate(time = str_c(pfas_visit_filled, Matrix, sep = "_")) %>%  select(ptid, time, all_of(PFAS.vars), "sumPFOS")
+
+PFAS_fill_visit_wide_raw <- PFAS_fill_visit_wide_raw %>% 
+  pivot_wider(names_from = time,  
+              values_from = c("PFHpA (ng/mL)","L-PFOA (ng/mL)", "PFHxS (ng/mL)","PFNA (ng/mL)", "PFDA (ng/mL)",
+                              "L-PFOS (ng/mL)", "B-PFOS-Q","PFUnDA (ng/mL)", "PFDoDA (ng/mL)", "sumPFOS" ))
+
+# for-loop the TE% formula on each PFAS                           
+all.PFAS.vars <- c(PFAS.vars, "sumPFOS")
+PFAS_TE_individual <- data.frame(PFAS_fill_visit_wide_raw$ptid) 
+colnames(PFAS_TE_individual) <- "ptid"
+
+for( i in all.PFAS.vars){
+  subset <-  PFAS_fill_visit_wide_raw %>%  select(ptid, starts_with(i))  # subset the 3 measurements for a single PFAS 
+  subset$bm9_s5 <-  (subset[,3] / subset[,2])*100                              # calc breastmilk 9mo to serum TE%
+  subset$bm11_s5 <- (subset[,4] / subset[,2])*100                              # calc breastmilk 11mo to serum TE%
+  
+  names(subset) = gsub(pattern = "bm9_s5", replacement = paste0("TE_", i , "_9b_5m"), x = names(subset)) # beautiful names 
+  names(subset) = gsub(pattern = "bm11_s5", replacement = paste0("TE_", i , "_11b_5m"), x = names(subset)) # beautiful names
+  
+  subset <- subset %>%  select(ptid, starts_with("TE"))
+  PFAS_TE_individual <- left_join(PFAS_TE_individual, subset, by = "ptid", copy = F)   # join data
+}
+
+PFAS_TE_individual <- as.list(PFAS_TE_individual)   # convert list to data frame
+PFAS_TE_individual<- do.call(cbind, PFAS_TE_individual)
+PFAS_TE_individual <- as.data.frame(PFAS_TE_individual)
+names(PFAS_TE_individual) = gsub(pattern = "(_Breast milk)", replacement = paste0("b_5s"), x = names(PFAS_TE_individual)) # beautiful names
+colnames(PFAS_TE_individual)[2:21] <- paste('TE', colnames(PFAS_TE_individual)[2:21], sep = '_') # ADD  a prefix of TE that denotes TE%
+
+#### summarize 
+table1(~., data = PFAS_TE_individual[2:21])
+```
+
+We calculated the estimated daily intake (EDI) of individual PFAS
+occurring via breastfeeding. EDIs were calculated using the equation
+EDI= concentration of a given PFAS in breastmilk\*food ingestion rate.
+For this equation, the food ingestion rate (mL/bodyweight in kilograms
+[kg]/day), which represents the average daily intake of breastmilk, was
+assumed to be 150 mL/kg/day for 6-12 month old infants.
+
+```{r edi}
+####  calculate EDI for each individual#### 
+PFAS_EDI_ind <-PFAS_fill_visit_wide_raw %>%  select(ptid, ends_with("Breast milk"))
+PFAS_EDI_ind<- PFAS_EDI_ind %>%  mutate_at(vars(2:21), .funs= funs(.*150))
+# summary 
+table1(~., data = PFAS_EDI_ind[2:21])
+
+PFAS_EDI_ind_long <- PFAS_EDI_ind %>%  pivot_longer( cols = 2:21,
+                                                     names_to='EDI_visit',
+                                                     values_to='EDI')
+
+PFAS_EDI_ind_long <- PFAS_EDI_ind_long %>% mutate(pfas = str_split_i(EDI_visit, "_", -3),
+                                                  EDI_visit2 = str_split_i(EDI_visit, "_", -2),
+                                                  EDI_visit2 = paste0(EDI_visit2, "mo Breastmilk"))
+
+#### summarize
+table1(~`EDI`|pfas+EDI_visit2, data = PFAS_EDI_ind_long[2:5])
+```
+
+**Correlation between TE and EDI**
+
+**Figure 3.** Spearman correlation between natural log transformed per-
+and poly-fluoroalkyl substances (PFAS) measured at different time points
+pre- and post-delivery that had \>50% detection levels in the Study of
+Asian Women and Offspring’s Development and Environmental Exposures
+(SAWASDEE cohort, 2017-2019).
+
+```{r corrplot}
+#### data arrangenent for corelation plot 
+corr_data<- PFAS_fill_visit  %>%  select(starts_with("ln"), ptid, pfas_visit_filled, Matrix) %>%  
+  mutate(time = str_c(pfas_visit_filled, Matrix, sep = "_")) %>%  
+  select(time, ptid, 
+         "lnPFHpA", "lnLPFOA", "lnPFHxS" , "lnPFNA",  "lnPFDA" , 
+         "lnPFUnDA" ,   "lnPFDoDA", "lnsPFOS" )
+
+corr_data <- corr_data %>%  pivot_wider(names_from = time, 
+                                        values_from = c("lnPFHpA", "lnLPFOA", "lnPFHxS" , "lnPFNA",  "lnPFDA" , 
+                                                        "lnPFUnDA", "lnPFDoDA", "lnsPFOS" ))
+
+corr_data <- corr_data %>% mutate_all(as.numeric)
+corr_data <- corr_data %>% select(ptid ,lnLPFOA_5_Serum,
+                                  lnPFHxS_5_Serum, 
+                                  lnPFNA_5_Serum, 
+                                  lnPFDA_5_Serum, 
+                                  lnPFUnDA_5_Serum, 
+                                  lnsPFOS_5_Serum, 
+                                  "lnPFNA_9_Breast milk", 
+                                  "lnsPFOS_9_Breast milk", 
+                                  "lnsPFOS_11_Breast milk")
+
+names(corr_data) <- c("ptid" , 
+                      "PFOA in 2nd Trimester Serum",
+                      "PFHxS in 2nd Trimester Serum", 
+                      "PFNA in 2nd Trimester Serum", 
+                      "PFDA in 2nd Trimester Serum", 
+                      "PFUnDA in 2nd Trimester Serum", 
+                      "PFOS in 2nd Trimester Serum", 
+                      "PFNA in 9.5month Breastmilk", 
+                      "PFOS in 9.5month Breastmilk", 
+                      "PFOS in 11.5month Breastmilk")
+
+# Function to calculate p-values
+cor.mtest <- function(mat, ...) {
+  mat <- as.matrix(mat)
+  n <- ncol(mat)
+  p.mat <- matrix(NA, n, n)
+  diag(p.mat) <- 0
+  for (i in 1:(n - 1)) {
+    for (j in (i + 1):n) {
+      tmp <- cor.test(mat[, i], mat[, j], ...)
+      p.mat[i, j] <- p.mat[j, i] <- tmp$p.value
+    }
+  }
+  colnames(p.mat) <- rownames(p.mat) <- colnames(mat)
+  p.mat
+}
+
+# Calculate correlation matrix and p-values
+corr_data <- as.data.frame(corr_data[-1])
+cor_matrix <- cor(corr_data, method = "spearman", use = "complete.obs")
+p_matrix <- cor.mtest(corr_data, method = "spearman")
+
+
+#### Plot with p-value stars
+corrplot(cor_matrix, method = "color", addCoef.col = 'black', number.digits = 2, 
+         title = "", tl.col = "black", type = "lower", 
+         number.cex = 0.75, cl.pos = 'n', col = COL2('RdYlBu'), 
+         p.mat = p_matrix, sig.level = c(0.05), insig = "label_sig", pch.cex = 1.2, pch.col = "black")
+
+trace(corrplot, edit=TRUE)
+# replace line 443 place_points (...)
+# adjust text(X,Y ...) according to your needs, here +0.25 is added to the Y-position    
+  place_points = function(sig.locs, point) {
+   text(pos.pNew[, 1][sig.locs], (pos.pNew[, 2][sig.locs])+0.25,
+        labels = point, col = pch.col, cex = pch.cex, lwd = 2)}
+```
+
+**Differences in TE and EDI by demographics**
+
+**Table 3.** Distribution of the mean transfer efficiency and
+lactational estimated daily intake, overall and by study demographics in
+the Study of Asian Women and Offspring’s Development and Environmental
+Exposures (SAWASDEE cohort, 2017-2019).  
+
+```{r te_edi_demographics}
+###### Data Merging
+# join te and breastfeed_pfas_covars
+tePFAS_covars<- left_join(breastfeed_PFAS_covars, PFAS_TE_individual, by = "ptid")
+
+# add edi 
+tePFAS_covars <- left_join(tePFAS_covars, PFAS_EDI_ind, by = "ptid")
+colnames(tePFAS_covars) <- str_replace(colnames(tePFAS_covars), ".y", "_EDI")
+
+
+####### What Variables are needed
+#11 month PFNA, and sum PFOS at both 9 and 11 month timepoints.
+# timepoint 
+select_pfas_te_edi <- c("TE_PFNA (ng/mL)_9b_5s",
+                        "TE_sumPFOS_9b_5s", "TE_sumPFOS_11b_5s", 
+                        "PFNA (ng/mL)_9_Breast milk_EDI",
+                        "PFNA (ng/mL)_11_Breast milk_EDI", 
+                        "sumPFOS_9_Breast milk_EDI", 
+                        "sumPFOS_11_Breast milk_EDI")
+
+
+##### Save results ######
+# save(tePFAS_covars, file = "PFAS_TE_EDI_covars.Rda")
+########## 
+
+######## Table 3- overall summary
+table1(~ `TE_PFNA (ng/mL)_9b_5s` + TE_sumPFOS_9b_5s + TE_sumPFOS_11b_5s, data = tePFAS_covars)
+
+table1(~ `PFNA (ng/mL)_9_Breast milk_EDI` + `sumPFOS_9_Breast milk_EDI` +  `sumPFOS_11_Breast milk_EDI`, data = tePFAS_covars)
+
+######## T-tests/ANOVAs for TE by demographics
+pvalue <- function(x, ...) {
+  # Construct vectors of data y, and groups (strata) g
+  y <- unlist(x)
+  g <- factor(rep(1:length(x), times=sapply(x, length)))
+  if (is.numeric(y)) {
+    # For numeric variables, perform a standard 2-sample t-test
+    p <- t.test(y ~ g)$p.value
+  } else {
+    # For categorical variables, perform a chi-squared test of independence
+    p <- chisq.test(table(y, g))$p.value
+  }
+  # Format the p-value, using an HTML entity for the less-than sign.
+  # The initial empty string places the output on the line below the variable label.
+  c("", sub("<", "&lt;", format.pval(p, digits=3, eps=0.001)))
+}
+
+# sex
+table1(~ `TE_PFNA (ng/mL)_9b_5s` + TE_sumPFOS_9b_5s + TE_sumPFOS_11b_5s +
+       `PFNA (ng/mL)_9_Breast milk_EDI` + `sumPFOS_9_Breast milk_EDI` + `sumPFOS_11_Breast milk_EDI`| child_sex, data = tePFAS_covars, overall=F, extra.col=list(`P-value`=pvalue))
+
+# location 
+table1(~ `TE_PFNA (ng/mL)_9b_5s` + TE_sumPFOS_9b_5s + TE_sumPFOS_11b_5s + 
+         `PFNA (ng/mL)_9_Breast milk_EDI` + `sumPFOS_9_Breast milk_EDI` + `sumPFOS_11_Breast milk_EDI`| location, data = tePFAS_covars, overall=F, extra.col=list(`P-value`=pvalue))
+
+
+# matenral age
+# dicotomize at median 
+summary(tePFAS_covars$mat_age)
+tePFAS_covars$mat_age_cat <- ifelse(tePFAS_covars$mat_age < 25, "below 25 yrs", "25 or above")
+
+table1(~ `TE_PFNA (ng/mL)_9b_5s` + TE_sumPFOS_9b_5s + TE_sumPFOS_11b_5s + 
+         `PFNA (ng/mL)_9_Breast milk_EDI` + `sumPFOS_9_Breast milk_EDI` + `sumPFOS_11_Breast milk_EDI`| mat_age_cat, data = tePFAS_covars, overall=F, extra.col=list(`P-value`=pvalue))
+
+# pre-pregnancy BMI 
+tePFAS_covars <- tePFAS_covars %>%  mutate(ppbmi_cat = case_when(ppbmi < 18.5 ~ "<25", 
+                                                                 18.5 <= ppbmi &  ppbmi < 24.9	~ "<25",
+                                                                 25 <= ppbmi & ppbmi < 29.9	~ "25-29.9", 
+                                                                 ppbmi >=30 ~ 	">30", 
+                                                                 TRUE ~ "bad") )
+
+table1(~ `TE_PFNA (ng/mL)_9b_5s` + TE_sumPFOS_9b_5s + TE_sumPFOS_11b_5s + 
+         `PFNA (ng/mL)_9_Breast milk_EDI` + `sumPFOS_9_Breast milk_EDI` + `sumPFOS_11_Breast milk_EDI` 
+       | ppbmi_cat, data = tePFAS_covars, 
+       overall=F)
+
+res <- tePFAS_covars %>% 
+  select(all_of(select_pfas_te_edi)) %>%
+  map_df(~ broom::tidy(oneway.test(. ~ tePFAS_covars$ppbmi_cat)), .id = 'var')
+
+# Household adj income 
+hist(tePFAS_covars$household_adj_income)
+tePFAS_covars <-tePFAS_covars %>% mutate(household_adj_income_cat = case_when(household_adj_income <= 1600 | household_adj_income == 1600 ~ "< or below 1600", 
+                                                                              household_adj_income > 1600 ~ "> 1600", 
+                                                                              TRUE ~ NA)) 
+
+table1(~ `TE_PFNA (ng/mL)_9b_5s` + TE_sumPFOS_9b_5s + TE_sumPFOS_11b_5s + 
+         `PFNA (ng/mL)_9_Breast milk_EDI` +  `sumPFOS_9_Breast milk_EDI` + `sumPFOS_11_Breast milk_EDI`
+       | household_adj_income_cat, data = tePFAS_covars %>%  drop_na(household_adj_income_cat), 
+       overall=T)
+
+res <- tePFAS_covars %>% 
+  select(all_of(select_pfas_te_edi)) %>% 
+  map_df(~ broom::tidy(t.test(. ~ tePFAS_covars$household_adj_income_cat)), .id = 'var')
+
+
+# maternal education 
+tePFAS_covars <- tePFAS_covars %>%  mutate(mom_education = case_when(mom_education == "College graduate or more" ~ "Junior High school and more", 
+                                                                     mom_education == "Diploma/technical school/equivalent" ~ "Junior High school and more", 
+                                                                     mom_education == "high school/did not graduate" ~ "Junior High school and more",
+                                                                     mom_education == "junior high/high school" ~ "Junior High school and more",
+                                                                     mom_education == "None" ~ "Primary school or never attended",
+                                                                     mom_education == "primary" ~ "Primary school or never attended") )
+
+table1(~`TE_PFNA (ng/mL)_9b_5s` + TE_sumPFOS_9b_5s +TE_sumPFOS_11b_5s + 
+         `PFNA (ng/mL)_9_Breast milk_EDI` + `sumPFOS_9_Breast milk_EDI` + `sumPFOS_11_Breast milk_EDI` | mom_education, tePFAS_covars %>%  drop_na(mom_education) )
+
+res <- tePFAS_covars %>% 
+  select(all_of(select_pfas_te_edi)) %>% 
+  map_df(~ broom::tidy(t.test(. ~ tePFAS_covars$mom_education)), .id = 'var')
+
+
+# parity
+table1(~ `TE_PFNA (ng/mL)_11b_5s` + TE_sumPFOS_9b_5s + TE_sumPFOS_11b_5s | Pari_EDI, data = tePFAS_covars, overall=F, extra.col=list(`P-value`=pvalue))
+table1(~ `PFNA (ng/mL)_9_Breast milk_EDI` + `sumPFOS_9_Breast milk_EDI` +  `sumPFOS_11_Breast milk_EDI` | Pari_EDI, data = tePFAS_covars, overall=F, extra.col=list(`P-value`=pvalue))
+
+res <- tePFAS_covars %>% 
+  select(all_of(select_pfas_te_edi)) %>%
+  map_df(~ broom::tidy(t.test(. ~ tePFAS_covars$Pari_EDI)), .id = 'var')
+```
+
+## NHANES comparison
+
+For those PFAS that were also measured in the US National Health and
+Nutrition Examination Study (NHANES, years 2017-2018), we compared serum
+PFAS levels in the SAWASDEE cohort with reproductive aged women (18-40
+years) to facilitate quantitative comparisons with other populations of
+reproductive aged women. \
+
+This code produced: 
+**Fig. 1.** Violin plots showing the distribution of all measured concentrations (ng/mL; natural log transformed) per- and poly-fluoroalkyl substances (PFAS) in the 
+Study of Asian Women and Offspring’s Development and Environmental Exposures (SAWASDEE cohort, 2017–2019) and among reproductive aged women in the 
+National Health and Nutrition Examination Study (NHANES; years 2017–2018). 
+Abbreviations: ln, natural log.
+
+**Table 2** Distribution of serum and breastmilk per- and poly-fluoroalkyl substances (PFAS) concentrations (ng/mL) in the Study of Asian Women and Offspring’s Development and Environmental Exposures (SAWASDEE cohort, 2017–2019) and among reproductive aged women in the National Health and Nutrition Examination Study (NHANES; years 2017–2018).
+```{r nhanes}
+#### Cleaning NHANES data and selection
+# summary 
+summary(nhanes_final_dataset_2023$RIDAGEYR)
+
+# nhanes_final_dataset_2023 <- nhanes_final_dataset_2023 %>% filter(RIDAGEYR < 41 & RIAGENDR == "2") 
+# 
+# nhanes_final_dataset_2023 <- nhanes_final_dataset_2023 %>%  mutate_at(.vars = 2:11, .funs = as.character)
+# 
+# nhanes_final_dataset_2023 <- nhanes_final_dataset_2023 %>%  mutate_at(.vars = 12:19, .funs = log) # comment this in only for violin plots, Table1 will not give geo mean or SD with this in. 
+# 
+# nhanes_final_dataset_2023 <- nhanes_final_dataset_2023 %>%  drop_na()
+# 
+# nhanes_final_dataset_2023 <- nhanes_final_dataset_2023 %>%  mutate_at(.vars = 12:19, .funs = as.numeric) 
+
+
+#### Table 2 - NHANES summary
+table1(~
+         `LBXMFOS`+
+         `LBXMPAH`+
+         `LBXNFOA`+
+         `LBXNFOS`+
+         `LBXPFDE`+
+         `LBXPFHS`+
+         `LBXPFNA`+
+         `LBXPFUA`,  data = nhanes_final_dataset_2023,
+       render.continuous=c("Geo. mean (Geo. SD)"="GMEAN (GSD)"))
+
+table1(~
+         `LBXMFOS`+
+         `LBXMPAH`+
+         `LBXNFOA`+
+         `LBXNFOS`+
+         `LBXPFDE`+
+         `LBXPFHS`+
+         `LBXPFNA`+
+         `LBXPFUA`,  data = nhanes_final_dataset_2023, render.continuous=table2.quartiles) 
+
+# lod 
+table1(~.,  data = nhanes_final_dataset_2023[2:11], 
+       render.continuous=c(.="Mean (CV%)", .="Median [Min, Max]",
+                           "Geo. mean (Geo. CV%)"="GMEAN (GCV%)"))
+
+table1(~LBDMFOSL,  data = nhanes_final_dataset_2023, 
+       render.continuous=c(.="Mean (CV%)", .="Median [Min, Max]",
+                           "Geo. mean (Geo. CV%)"="GMEAN (GCV%)"))
+
+# pivot for violin plot
+nhanes_final_dataset_2023_long <- nhanes_final_dataset_2023[c(1, 12:19)] 
+
+nhanes_final_dataset_2023_long<- pivot_longer(nhanes_final_dataset_2023_long, cols = 2:9)
+
+
+# label 
+nhanes_final_dataset_2023_long <- nhanes_final_dataset_2023_long %>%  mutate(name_neat = case_when(
+  name == "LBXMFOS" ~ "Sm-PFOS PFOS (ng/mL)", 
+  name == "LBXMPAH" ~ "Me-PFOSA-AcOH (ng/mL)", 
+  name == "LBXNFOA" ~ "PFOA (ng/mL)", 
+  name == "LBXNFOS" ~ "PFOS (ng/mL)", 
+  name == "LBXPFDE" ~ "PFDA (ng/mL)", 
+  name == "LBXPFHS" ~ "PFHxS (ng/mL)",
+  name == "LBXPFNA" ~	"PFNA (ng/mL)", 
+  name == "LBXPFUA" ~ "PFUA (ng/mL)"), 
+  visit_neat = "2017-2018", 
+  study = "NHANES")
+
+##### Data Merging: SAWASDEE and NHANES data and selection
+# covert sawasdee data to long data 
+PFAS_fill_visit_5serum_BM <- PFAS_fill_visit %>%  select(starts_with("ln"), pfas_visit_filled)
+PFAS_fill_visit_5serum_BM <- PFAS_fill_visit_5serum_BM %>%  pivot_longer(cols = 1:10)
+PFAS_fill_visit_5serum_BM <-  PFAS_fill_visit_5serum_BM %>%  mutate( name_neat = name, 
+                                                                     visit_neat = case_when(pfas_visit_filled == "5" ~ "2nd Trimester Serum",
+                                                                                            pfas_visit_filled == "9" ~ "9.5 months Breastmilk",
+                                                                                            pfas_visit_filled == "11" ~ "11.5 months Breastmilk"
+                                                                     ), 
+                                                                     study = "SAWASDEE")
+
+# MERGE SAWASDEE AND nhanes 
+pfas_nahanes_sawasdee <- rbind.data.frame(PFAS_fill_visit_5serum_BM[2:6], nhanes_final_dataset_2023_long[2:6])
+
+pfas_nahanes_sawasdee <- pfas_nahanes_sawasdee %>%  mutate(name_neat2 = case_when(
+  name_neat == "Sm-PFOS PFOS (ng/mL)" ~ "lnsPFOS", 
+  name_neat == "Me-PFOSA-AcOH (ng/mL)" ~ "lnMe-PFOSA-AcOH (ng/mL)", 
+  name_neat == "PFOA (ng/mL)" ~ "lnLPFOA", 
+  name_neat == "PFOS (ng/mL)" ~ "linear pfos", 
+  name_neat == "PFDA (ng/mL)" ~ "lnPFDA", 
+  name_neat == "PFHxS (ng/mL)" ~ "lnPFHxS",
+  name_neat == "PFNA (ng/mL)"~ "lnPFNA", 
+  name_neat == "PFUA (ng/mL)" ~ "lnPFUnDA", 
+  TRUE ~ name_neat))
+
+pfas_nahanes_sawasdee <- pfas_nahanes_sawasdee %>%  filter(name_neat2 != "lnBPFOS_q" &
+                                                             name_neat2 != "lnLPFOS_c" &
+                                                             name_neat2 != "lnLPFOS"  &
+                                                             name_neat2 !=  "linear pfos" & 
+                                                             name_neat2 != "lnMe-PFOSA-AcOH (ng/mL)" & 
+                                                             name_neat2  != "lnPFDoDA" & 
+                                                             name_neat2 != "lnPFHpA")
+
+pfas_nahanes_sawasdee <- pfas_nahanes_sawasdee %>%  mutate(visit_neat = ifelse(visit_neat == "2017-2018",  "Serum",visit_neat
+))
+
+
+##### Figure 1: # violin plot to Compare NHANES data and selection
+pfas_nahanes_sawasdee$name_neat3 = factor(pfas_nahanes_sawasdee$name_neat2, 
+                                          levels=c("lnPFNA","lnLPFOA","lnsPFOS", 
+                                                   "lnPFHxS", "lnPFDA", "lnPFUnDA")) 
+
+pfas_nahanes_sawasdee = pfas_nahanes_sawasdee %>%  mutate(name_neat4 = case_when(name_neat3 == "lnPFNA" ~ "PFNA",
+                                                                                 name_neat3 == "lnLPFOA" ~ "PFOA",
+                                                                                 name_neat3 == "lnsPFOS" ~ "PFOS",
+                                                                                 name_neat3 == "lnPFHxS" ~ "PFHxS",
+                                                                                 name_neat3 == "lnPFDA" ~   "PFDA",
+                                                                                 name_neat3 == "lnPFUnDA" ~ "PFUnDA")) 
+pfas_nahanes_sawasdee$name_neat4 = factor(pfas_nahanes_sawasdee$name_neat4, 
+                                          levels=c("PFNA","PFOA","PFOS", 
+                                                   "PFHxS", "PFDA", "PFUnDA")) 
+
+
+ggplot(pfas_nahanes_sawasdee, aes(x= factor(visit_neat, level = c("Serum", "2nd Trimester Serum",
+                                                                  "9.5 months Breastmilk",
+                                                                  "11.5 months Breastmilk" ) ),
+                                  y = value, 
+                                  fill = visit_neat, color= visit_neat)) + 
+  geom_violin(trim = F, alpha = 0.5) +
+  geom_jitter(alpha = 0.35, size = 1.2) + 
+  ggthemes::scale_fill_tableau(palette = "Tableau 10") +
+  ggthemes::scale_color_tableau(palette = "Tableau 10") +
+  scale_x_discrete(labels = function(x) str_wrap(x, width = 15)) + 
+  labs(y = "PFAS (ng/mL) measurements", x = "") + 
+  ggtitle("Distribution of PFAS in NHANES vs SAWADEE") + 
+  facet_wrap(~name_neat4, ncol = 3, scales = "free") + 
+  theme_bw() + 
+  theme(axis.title = element_text(face = "bold", size = 12),
+        axis.text = element_text(size = 11),
+        strip.text = element_text(size = 12),
+        legend.position = "none")
+
+ggsave("sawasdee_nhanes_pfas.jpeg")
+```
+
+Note: **Figure 2.** Composition profile of per- and poly-fluoroalkyl
+substances (PFAS) in the Study of Asian Women and Offspring’s
+Development and Environmental Exposures (SAWASDEE cohort, 2017-2019) and
+among reproductive aged women in the National Health and Nutrition
+Examination Study (NHANES; years 2017-2018 ] was made using SAS code.
+
+##### End of code
